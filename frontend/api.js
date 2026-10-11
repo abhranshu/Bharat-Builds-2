@@ -22,6 +22,12 @@ const CHHAON = (function () {
   const API_BASE_URL =
     "https://ie5jb9r5u2.execute-api.ap-south-1.amazonaws.com/prod";
 
+  // Same public chhaon-web key embedded for the basemap in app.js
+  // CONFIG.map.styleUrl (?key=...). Fallback only — app.js sets the live
+  // value via setPlacesApiKey() parsed from the style URL.
+  const DEFAULT_PLACES_KEY =
+    "v1.public.eyJqdGkiOiJmMGQ4MmM2NC05ZDNmLTRlMzEtYjkyYS1jOTMyYjVlNTljZTAifTNF3fwdkkxYtgyb-Ez8sYr5qYjFrXr_nuCngBU1g6osEt7w7wGJFz59IGtjcSvR63d_pVRlR0S0tKuCkbLuhZ-4BSqRmA7NZ9Iud8GLJcULmsgfs9CcG_X4Y6hLRYTAZtRX9NLCNsn8qB5vlHASWDjgDCCXS2F9Jvwy4Q7J16ji3LoYtJGzjZ9cy7S9IlU1U8IB86tK0K7s9Xlmmz7h_0rZNM2hfRVp6Y5XclELrKndhiU2oJKj3_69QQ2PmK66Oe_AxjTcgSA8kL0aQa9C1ElowTul4SAu1v58LfcR0yDZ2hPZK3bIMtolqM--VkFBDFh3ysV-PlWJ8QvbxH30tz4.Njg1MGZlZTUtYTI2ZS00MDdlLWJjNDktMDNmZDlkNzVmMjQ0";
+
   // Endpoint paths (joined onto API_BASE_URL; never duplicated in full).
   const PATHS = { health: "/health", meta: "/meta", route: "/route" };
 
@@ -164,6 +170,98 @@ const CHHAON = (function () {
       signal: signal,
     });
   }
+  /* --------------------------------------------------------------------- *
+   * Amazon Location Service — geo-places v2 SearchText (key auth).
+   *
+   * Uses the SAME public `chhaon-web` key the basemap already embeds
+   * (scoped to geo-maps and geo-places). Key travels as `?key=` query
+   * param — the documented browser pattern, never a secret credential.
+   * --------------------------------------------------------------------- */
+  var PLACES_HOST = "https://places.geo.ap-south-1.amazonaws.com";
+  var PILOT_BIAS = [77.2197, 28.6314]; // [lon, lat] Connaught Place centre
+  var PILOT_BIAS_RADIUS_M = 2500;
+
+  // Filled in by app.js from the styleUrl's ?key= value; falls back to the
+  // embedded key so unit tests and direct file opens still work.
+  var placesApiKey = null;
+
+  function setPlacesApiKey(k) {
+    if (typeof k === "string" && k) placesApiKey = k;
+  }
+
+  function placesKey() {
+    return placesApiKey || DEFAULT_PLACES_KEY;
+  }
+
+  /* SearchText -> [{placeId,title,address,lat,lon}] filtered to pilot bbox.
+   * Throws ApiError("network"|"http") on failure; never throws on empty. */
+  function searchPlaces(query, meta, signal) {
+    var q = String(query == null ? "" : query).trim();
+    if (!q) return Promise.resolve([]);
+    var url = PLACES_HOST + "/v2/search-text?key=" + encodeURIComponent(placesKey());
+    var body = {
+      QueryText: q,
+      MaxResults: 8,
+      Language: "en",
+      BiasPosition: PILOT_BIAS,
+      Filter: { Circle: { Center: PILOT_BIAS, Radius: PILOT_BIAS_RADIUS_M } },
+    };
+    return fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: signal,
+    })
+      .then(function (resp) {
+        if (!resp.ok) {
+          throw new ApiError(
+            "http",
+            "Place search failed (HTTP " + resp.status + ").",
+            { status: resp.status }
+          );
+        }
+        return resp.json();
+      })
+      .then(function (data) {
+        var items = data && Array.isArray(data.ResultItems) ? data.ResultItems : [];
+        var out = [];
+        for (var i = 0; i < items.length; i++) {
+          var it = items[i] || {};
+          var pos = Array.isArray(it.Position) ? it.Position : null; // [lon, lat]
+          if (!pos || pos.length < 2) continue;
+          var lon = Number(pos[0]);
+          var lat = Number(pos[1]);
+          if (!isFinite(lat) || !isFinite(lon)) continue;
+          if (!insideBbox(meta, lat, lon)) continue; // keep pilot-only promise
+          var addr = it.Address || {};
+          var free = addr.FreeText || addr.Label || "";
+          out.push({
+            placeId: typeof it.PlaceId === "string" ? it.PlaceId : "",
+            title: typeof it.Title === "string" ? it.Title : q,
+            address: typeof free === "string" ? free : "",
+            lat: lat,
+            lon: lon,
+            kind: "suggest",
+          });
+        }
+        return out;
+      })
+      .catch(function (err) {
+        if (err && err.name === "AbortError") throw err;
+        if (err instanceof ApiError) throw err;
+        throw new ApiError("network", "Place search is unreachable. Check your connection and try again.");
+      });
+  }
+
+  /* Local substring filter over the curated pilot list (instant, offline). */
+  function filterPilotPlaces(query) {
+    var q = normalizeName(query);
+    if (!q) return PILOT_PLACES.slice();
+    return PILOT_PLACES.filter(function (p) {
+      return normalizeName(p.name).indexOf(q) !== -1;
+    });
+  }
+
 
   /* --------------------------------------------------------------------- *
    * Input parsing / validation
@@ -197,14 +295,20 @@ const CHHAON = (function () {
     return { lat: lat, lon: lon };
   }
 
-  /* Resolve one text field to a coordinate. Throws an "input" ApiError with a
-   * field-specific message when the text is empty or unrecognised. */
-  function resolveLocation(text, fieldLabel) {
+  /* Resolve one field to a coordinate. `pinned` is the {lat, lon} stored on
+   * the input's data attributes when the user picks a dropdown option, so
+   * the label can never disconnect from submitted coordinates. Text
+   * matching (place name / lat,lon) remains as the fallback path. */
+  function resolveLocation(text, fieldLabel, pinned) {
     const label = fieldLabel || "location";
     if (typeof text !== "string" || !text.trim()) {
       throw inputError("Enter a " + label + ".");
     }
     const raw = text.trim();
+    // Pinned dropdown selection wins: coordinates the service returned.
+    if (pinned && isFinite(pinned.lat) && isFinite(pinned.lon)) {
+      return { lat: pinned.lat, lon: pinned.lon, label: raw, kind: "picked" };
+    }
     const place = findPlace(raw);
     if (place) {
       return { lat: place.lat, lon: place.lon, label: place.name, kind: "place" };
@@ -268,8 +372,8 @@ const CHHAON = (function () {
   /* Turn the form's raw strings into a validated /route request body.
    * Throws "input" errors with user-facing messages. */
   function buildRouteRequest(input, meta) {
-    const start = resolveLocation(input.startText, "starting point");
-    const end = resolveLocation(input.endText, "destination");
+    const start = resolveLocation(input.startText, "starting point", input.startPinned);
+    const end = resolveLocation(input.endText, "destination", input.endPinned);
     const hour = parseHour(input.hourValue);
     const walker = validateWalker(input.walker);
 
@@ -409,6 +513,9 @@ const CHHAON = (function () {
     fetchHealth: fetchHealth,
     fetchRoutes: fetchRoutes,
     findPlace: findPlace,
+    filterPilotPlaces: filterPilotPlaces,
+    searchPlaces: searchPlaces,
+    setPlacesApiKey: setPlacesApiKey,
     parseLatLon: parseLatLon,
     resolveLocation: resolveLocation,
     parseHour: parseHour,

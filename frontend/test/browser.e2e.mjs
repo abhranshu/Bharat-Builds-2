@@ -168,7 +168,7 @@ async function main() {
   );
   check("A: /meta loaded and shown", /Connaught Place/.test(note), note);
   check("A: real graph reported (not sample)", /real OpenStreetMap graph/.test(note) && !/sample/i.test(note), note);
-  const places = await evalJs("document.querySelectorAll('#placeList option').length");
+  const places = await evalJs("document.querySelectorAll('#startList li[role=\"option\"], #destList li[role=\"option\"]').length");
   check("A: pilot-place list populated", places >= 8, "options=" + places);
 
   // --- Test D: invalid input ---------------------------------------------

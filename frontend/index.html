@@ -60,13 +60,22 @@
 <p class="pilot-note" id="pilotNote" role="status">Loading pilot-area details…</p>
 <div class="tool-grid">
 <form id="routeForm" class="panel" aria-label="Route search form" aria-busy="false">
-<label>Start
-<input id="inStart" type="text" value="Connaught Place (centre)" list="placeList" autocomplete="off" placeholder="Place name or lat,lon" />
-</label>
-<label>Destination
-<input id="inDest" type="text" value="Agrasen ki Baoli" list="placeList" autocomplete="off" placeholder="Place name or lat,lon" />
-</label>
-<datalist id="placeList"></datalist>
+<div class="field" data-combo="start">
+<label id="lblStart" for="inStart">Start</label>
+<div class="combo">
+<input id="inStart" type="text" role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="startList" aria-labelledby="lblStart" value="Connaught Place (centre)" autocomplete="off" spellcheck="false" placeholder="Search places or type lat,lon" />
+<button type="button" class="combo-arrow" id="startArrow" aria-label="Show start locations" aria-controls="startList" aria-expanded="false" tabindex="-1">&#9662;</button>
+<ul class="combo-list" id="startList" role="listbox" aria-labelledby="lblStart" hidden></ul>
+</div>
+</div>
+<div class="field" data-combo="end">
+<label id="lblDest" for="inDest">Destination</label>
+<div class="combo">
+<input id="inDest" type="text" role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="destList" aria-labelledby="lblDest" value="Agrasen ki Baoli" autocomplete="off" spellcheck="false" placeholder="Search places or type lat,lon" />
+<button type="button" class="combo-arrow" id="destArrow" aria-label="Show destination locations" aria-controls="destList" aria-expanded="false" tabindex="-1">&#9662;</button>
+<ul class="combo-list" id="destList" role="listbox" aria-labelledby="lblDest" hidden></ul>
+</div>
+</div>
 <div class="row2">
 <label>Time of day<input id="inTime" type="time" value="13:00" /></label>
 <label>Who is walking<select id="inWho"><option value="adult">Adult</option><option value="elderly">Elderly</option><option value="child">Child</option><option value="vendor">Vendor</option></select></label>

@@ -86,6 +86,33 @@ test("insideBbox mirrors the backend margin", () => {
   assert.equal(CHHAON.insideBbox(meta, 19.076, 72.877), false); // Mumbai
   assert.equal(CHHAON.insideBbox(null, 0, 0), true);            // no meta -> defer to server
 });
+test("filterPilotPlaces returns the curated list and filters by substring", () => {
+  assert.equal(CHHAON.filterPilotPlaces("").length, CHHAON.PILOT_PLACES.length);
+  const hits = CHHAON.filterPilotPlaces("connaught");
+  assert.ok(hits.length >= 2 && hits.every((p) => /connaught/i.test(p.name)));
+  assert.equal(CHHAON.filterPilotPlaces("zzz-no-such-place").length, 0);
+});
+
+test("pinned dropdown coordinates win in buildRouteRequest", () => {
+  const req = CHHAON.buildRouteRequest(
+    {
+      startText: "Somewhere I typed",
+      endText: "Agrasen ki Baoli",
+      startPinned: { lat: 28.6314, lon: 77.2197 },
+      endPinned: null,
+      hourValue: "13:00",
+      walker: "adult",
+    },
+    null
+  );
+  assert.deepEqual(req.start, { lat: 28.6314, lon: 77.2197 });
+});
+
+test("searchPlaces rejects empty queries without network", async () => {
+  const out = await CHHAON.searchPlaces("   ", null, undefined);
+  assert.deepEqual(out, []);
+});
+
 
 test("buildRouteRequest produces the exact backend schema", () => {
   const req = CHHAON.buildRouteRequest(

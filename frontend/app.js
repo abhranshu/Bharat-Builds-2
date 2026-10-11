@@ -179,17 +179,12 @@ document.getElementById('toTool').addEventListener('click',()=>document.getEleme
     'Estimated values for a pilot area, based on map data and simple models. Not measured conditions.';
   if (disclaimerEl) disclaimerEl.textContent = DEFAULT_DISCLAIMER;
 
-  // Populate the location suggestion list from the shared place list.
-  const placeList = document.getElementById('placeList');
-  // `CHHAON` is declared with const in api.js; like all top-level const bindings
-  // it lives in the shared global lexical scope (not on window), so reference
-  // it by name and guard with typeof.
-  if (placeList && typeof CHHAON !== 'undefined') {
-    for (const p of CHHAON.PILOT_PLACES) {
-      const o = document.createElement('option');
-      o.value = p.name;
-      placeList.appendChild(o);
-    }
+  // Prime the Places key from the same public key the basemap uses.
+  if (typeof CHHAON !== 'undefined' && CHHAON.setPlacesApiKey) {
+    try {
+      const k = new URL(CONFIG.map.styleUrl).searchParams.get('key');
+      if (k) CHHAON.setPlacesApiKey(k);
+    } catch (_) { /* fallback key in api.js applies */ }
   }
 
   const state = { meta: null, routes: null, advice: null, lang: 'en', selected: null, req: null };
@@ -198,6 +193,124 @@ document.getElementById('toTool').addEventListener('click',()=>document.getEleme
 
   /* --- map ----------------------------------------------------------------- */
   let map = null, mapReady = false, styleFellBack = false;
+  /* --- searchable location dropdowns (one per field, independent) --- */
+  function makeCombo(input, list, arrow) {
+    const box = { input: input, list: list, arrow: arrow, items: [], active: -1,
+      timer: 0, seq: 0, ctrl: null, open: false };
+    if (!input || !list) return box;
+    function setOpen(on) {
+      box.open = on; list.hidden = !on;
+      input.setAttribute('aria-expanded', on ? 'true' : 'false');
+      if (arrow) arrow.setAttribute('aria-expanded', on ? 'true' : 'false');
+    }
+    function statusRow(cls, text, retry) {
+      list.innerHTML = '';
+      const li = document.createElement('li');
+      li.className = 'status ' + (cls || ''); li.textContent = text;
+      list.appendChild(li); box.items = []; box.active = -1;
+      if (retry) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'retry'; b.textContent = 'Retry';
+        b.addEventListener('click', (e) => { e.stopPropagation(); search(input.value, true); });
+        const w = document.createElement('li'); w.className = 'status'; w.appendChild(b);
+        list.appendChild(w);
+      }
+    }
+    function paint(items) {
+      list.innerHTML = ''; box.items = items; box.active = items.length ? 0 : -1;
+      items.forEach((it, i) => {
+        const li = document.createElement('li');
+        li.id = list.id + '-opt-' + i;
+        li.setAttribute('role', 'option');
+        li.setAttribute('aria-selected', i === 0 ? 'true' : 'false');
+        if (i === 0) li.classList.add('active');
+        const t = document.createElement('span'); t.className = 't'; t.textContent = it.title;
+        const s = document.createElement('span'); s.className = 's';
+        s.textContent = it.address || (it.kind === 'pilot' ? 'Supported pilot location' : 'Suggested place');
+        const k = document.createElement('span'); k.className = 'k';
+        k.textContent = it.kind === 'pilot' ? 'pilot' : it.kind === 'coords' ? 'coordinates' : 'search';
+        li.append(t, s, k);
+        li.addEventListener('mousedown', (e) => { e.preventDefault(); choose(i); });
+        list.appendChild(li);
+      });
+      input.setAttribute('aria-activedescendant', items.length ? list.id + '-opt-0' : '');
+    }
+    function move(d) {
+      if (!box.items.length) return;
+      box.active = (box.active + d + box.items.length) % box.items.length;
+      const kids = list.querySelectorAll('li[role="option"]');
+      kids.forEach((li, i) => {
+        li.classList.toggle('active', i === box.active);
+        li.setAttribute('aria-selected', i === box.active ? 'true' : 'false');
+      });
+      input.setAttribute('aria-activedescendant', list.id + '-opt-' + box.active);
+      const el = kids[box.active];
+      if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+    }
+    function choose(i) {
+      const it = box.items[i]; if (!it) return;
+      input.value = it.title;
+      input.dataset.lat = String(it.lat); input.dataset.lon = String(it.lon);
+      setOpen(false); input.focus();
+    }
+    function search(q, force) {
+      if (typeof CHHAON === 'undefined') { statusRow('error', 'Unable to load locations. Please try again.', true); return; }
+      const query = String(q == null ? '' : q);
+      const local = CHHAON.filterPilotPlaces(query).map((p) => ({
+        title: p.name, address: 'Supported pilot location', lat: p.lat, lon: p.lon, kind: 'pilot' }));
+      const ll = CHHAON.parseLatLon(query);
+      const coordOpt = ll ? [{ title: CHHAON.formatLatLon(ll.lat, ll.lon),
+        address: 'Coordinates you typed', lat: ll.lat, lon: ll.lon, kind: 'coords' }] : [];
+      if (!query.trim()) { paint(local); setOpen(true); return; }
+      if (!local.length && !coordOpt.length) statusRow('', 'No matching locations found.');
+      else paint(local.concat(coordOpt));
+      setOpen(true);
+      clearTimeout(box.timer);
+      if (box.ctrl) { try { box.ctrl.abort(); } catch (_) {} }
+      box.timer = setTimeout(async () => {
+        const my = ++box.seq; box.ctrl = new AbortController();
+        try {
+          const remote = await CHHAON.searchPlaces(query.trim(), state.meta, box.ctrl.signal);
+          if (my !== box.seq) return;
+          const seen = new Set(local.map((p) => p.title.toLowerCase()));
+          const fresh = remote.filter((r) => !seen.has(String(r.title).toLowerCase()));
+          if (fresh.length) paint(local.concat(coordOpt, fresh));
+        } catch (err) {
+          if (err && err.name === 'AbortError') return;
+          if (!box.items.length) statusRow('error', 'Unable to load locations. Please try again.', true);
+        }
+      }, force ? 0 : 280);
+    }
+    input.addEventListener('focus', () => search(input.value));
+    input.addEventListener('click', () => { if (!box.open) search(input.value); });
+    input.addEventListener('input', () => {
+      delete input.dataset.lat; delete input.dataset.lon; search(input.value);
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); if (!box.open) search(input.value); else move(1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
+      else if (e.key === 'Enter' && box.open && box.active >= 0) { e.preventDefault(); choose(box.active); }
+      else if (e.key === 'Escape' && box.open) { e.preventDefault(); setOpen(false); }
+    });
+    if (arrow) arrow.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (box.open) setOpen(false); else { input.focus(); search(''); }
+    });
+    document.addEventListener('click', (e) => {
+      if (box.open && !input.contains(e.target) && !list.contains(e.target) && !(arrow && arrow.contains(e.target))) setOpen(false);
+    });
+    return box;
+  }
+  const comboStart = makeCombo(inStart, document.getElementById('startList'), document.getElementById('startArrow'));
+  const comboEnd = makeCombo(inDest, document.getElementById('destList'), document.getElementById('destArrow'));
+
+  // Coordinates pinned by a dropdown pick (data-lat/data-lon). Null when the
+  // user typed free text, so resolveLocation falls back to name/coords match.
+  function pinnedOf(input) {
+    if (!input || !input.dataset) return null;
+    const lat = Number(input.dataset.lat), lon = Number(input.dataset.lon);
+    return (isFinite(lat) && isFinite(lon)) ? { lat: lat, lon: lon } : null;
+  }
 
   // Decide the basemap up front by checking the Amazon Location style URL.
   // Doing this BEFORE MapLibre starts avoids false fallbacks: an ordinary tile
@@ -496,6 +609,8 @@ document.getElementById('toTool').addEventListener('click',()=>document.getEleme
       req = CHHAON.buildRouteRequest({
         startText: inStart.value,
         endText: inDest.value,
+        startPinned: pinnedOf(inStart),
+        endPinned: pinnedOf(inDest),
         hourValue: inTime.value,
         walker: inWho.value,
       }, state.meta);
