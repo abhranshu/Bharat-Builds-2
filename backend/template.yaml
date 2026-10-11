@@ -1,0 +1,186 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Chhaon — coolest-route walking API for one pilot area. Lambda + HTTP API +
+  private S3 graph bucket + optional DynamoDB request log.
+
+# ---------------------------------------------------------------------------
+# Parameters
+# ---------------------------------------------------------------------------
+Parameters:
+  AllowedOrigin:
+    Type: String
+    Default: "*"
+    Description: >-
+      CORS allowed origin. Development default is '*' — SET THIS TO YOUR SITE
+      DOMAIN (e.g. https://chhaon.example.com) before you share the API.
+  BedrockModelId:
+    Type: String
+    Default: ""
+    Description: >-
+      Bedrock model id or inference-profile id for advice. Prefer an inference
+      profile (e.g. global.amazon.nova-2-lite-v1:0) because most models reject
+      on-demand invocation on the bare base-model id. List them with
+      `aws bedrock list-inference-profiles --region <region>`. Leave blank to
+      always use the template advice. Enable model access in the Bedrock console
+      before setting this.
+  GraphKey:
+    Type: String
+    Default: graph.json.gz
+    Description: S3 object key of the scored graph.
+
+# ---------------------------------------------------------------------------
+# Globals
+# ---------------------------------------------------------------------------
+Globals:
+  Function:
+    Runtime: python3.12
+    MemorySize: 1024
+    Timeout: 15
+    Architectures: [x86_64]
+    Environment:
+      Variables:
+        BEDROCK_MODEL_ID: !Ref BedrockModelId
+        ALLOWED_ORIGIN: !Ref AllowedOrigin
+        GRAPH_KEY: !Ref GraphKey
+
+Resources:
+  # -------------------------------------------------------------------------
+  # Graph storage (private)
+  # -------------------------------------------------------------------------
+  GraphBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "chhaon-graph-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-old-graphs
+            Status: Enabled
+            ExpirationInDays: 30
+
+  # -------------------------------------------------------------------------
+  # Optional anonymous request log (7-day TTL)
+  # -------------------------------------------------------------------------
+  RequestLogTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: request_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: request_id
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  # -------------------------------------------------------------------------
+  # Lambda
+  # -------------------------------------------------------------------------
+  RouteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "chhaon-route-${AWS::StackName}"
+      CodeUri: src/api/
+      Handler: app.handler
+      Description: Chhaon coolest-route finder
+      Environment:
+        Variables:
+          # Bucket/key hold the pre-scored graph built by scripts/build_graph.py
+          GRAPH_BUCKET: !Ref GraphBucket
+          GRAPH_KEY: !Ref GraphKey
+          TABLE_NAME: !Ref RequestLogTable
+      Policies:
+        - Statement:
+            # Least privilege: read ONLY the graph object.
+            - Effect: Allow
+              Action: [s3:GetObject]
+              Resource: !Sub "${GraphBucket.Arn}/${GraphKey}"
+            # Bedrock Converse needs InvokeModel on BOTH the inference profile and
+            # the foundation models it routes to. Most current models reject
+            # on-demand throughput on the base model id, so a policy that allowed
+            # only the region's foundation-model ARNs silently forced the template
+            # fallback (verified with `aws iam simulate-principal-policy`).
+            # `global.`/`apac.` profiles route across regions, hence the region
+            # wildcard on the foundation-model ARNs, which are inference-only and
+            # grant no data access.
+            - Effect: Allow
+              Action: [bedrock:InvokeModel]
+              Resource:
+                - "arn:aws:bedrock:*::foundation-model/*"
+                - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/*"
+            # Least privilege: write log items only.
+            - Effect: Allow
+              Action: [dynamodb:PutItem]
+              Resource: !GetAtt RequestLogTable.Arn
+      Events:
+        Health:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ChhaonApi
+            Path: /health
+            Method: GET
+        Meta:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ChhaonApi
+            Path: /meta
+            Method: GET
+        Route:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ChhaonApi
+            Path: /route
+            Method: POST
+        RouteOptions:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ChhaonApi
+            Path: /route
+            Method: OPTIONS
+
+  # -------------------------------------------------------------------------
+  # HTTP API with CORS + throttling
+  # -------------------------------------------------------------------------
+  ChhaonApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: prod
+      CorsConfiguration:
+        AllowOrigins:
+          - !Ref AllowedOrigin
+        AllowMethods: [GET, POST, OPTIONS]
+        AllowHeaders: [Content-Type]
+        MaxAge: 3600
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 20
+        ThrottlingRateLimit: 10
+
+# ---------------------------------------------------------------------------
+# Outputs
+# ---------------------------------------------------------------------------
+Outputs:
+  ApiUrl:
+    Description: Base URL of the Chhaon API
+    Value: !Sub "https://${ChhaonApi}.execute-api.${AWS::Region}.amazonaws.com/prod"
+  GraphBucketName:
+    Description: Upload graph.json.gz here
+    Value: !Ref GraphBucket
+  GraphKey:
+    Description: S3 object key of the scored graph
+    Value: !Ref GraphKey
+  RequestLogTable:
+    Description: Optional DynamoDB request-log table
+    Value: !Ref RequestLogTable

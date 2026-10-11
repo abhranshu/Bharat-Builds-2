@@ -1,0 +1,5 @@
+# Lambda runtime dependencies.
+# boto3 is provided by the AWS Lambda runtime; pin locally only for dev.
+# Build with `sam build --use-container` so numpy ships the correct Linux wheel.
+numpy==2.2.5
+networkx==3.5

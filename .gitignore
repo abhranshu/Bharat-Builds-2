@@ -1,0 +1,12 @@
+# Video sources and renders (large binaries)
+video/
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.webm
+
+# Extracted frames (large binaries, regenerable via ffmpeg)
+frame/
+frames/
+*.webp

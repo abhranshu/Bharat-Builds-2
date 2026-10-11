@@ -1,0 +1,12 @@
+# OFFLINE ONLY — for scripts/build_graph.py on your laptop. Never in the Lambda.
+osmnx>=2.0
+geopandas>=0.14
+shapely>=2.0
+pyproj>=3.5
+rasterio>=1.3
+pandas>=2.0
+pvlib>=0.10
+astral>=3.2
+boto3>=1.34
+numpy>=1.26
+networkx>=3.2

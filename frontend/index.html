@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chhaon — Find the coolest way to walk</title>
+<meta name="description" content="Chhaon (shade). A scroll-driven story about hotter cities, and a tool to find the coolest walking route." />
+<link rel="icon" href="data:," />
+<link rel="stylesheet" href="styles.css" />
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+</head>
+<body>
+<a class="skip" href="#tool">Skip to the route tool</a>
+<nav id="phases" aria-label="Story phases"><ol id="phaseDots"></ol></nav>
+<section id="film" aria-label="Scroll-driven film">
+<div class="film-sticky">
+<canvas id="filmCanvas" role="img" aria-label="Film: clouds part, camera descends to a forest, trees are cut, a city rises and the sky turns red with heat"></canvas>
+<div class="scrim" aria-hidden="true"></div>
+<div class="film-loader" aria-hidden="true"><span id="loadBar"></span></div>
+<div class="film-hint" id="scrollHint">Scroll</div>
+<div class="film-text" id="filmText" aria-live="polite">
+<p class="film-label" id="filmLabel"></p>
+<h2 class="film-line" id="filmLine"></h2>
+</div>
+<div class="film-progress" aria-hidden="true"><span id="filmProgress"></span></div>
+</div>
+</section>
+<section id="problem" aria-label="The problem"><div class="wrap">
+<p class="kicker">The problem</p>
+<div class="reveal" data-reveal><p>And they still have to walk.</p></div>
+<div class="reveal" data-reveal><p>On a 43&deg;C day, a 15-minute walk in the sun can be dangerous.</p></div>
+<div class="reveal" data-reveal><p>For the elderly. For children. For vendors who have no choice.</p></div>
+<div class="reveal" data-reveal><p>Every map optimises for speed.</p></div>
+<div class="reveal big" data-reveal><p>None optimises for survival.</p></div>
+</div></section>
+<section id="what" aria-label="What Chhaon is"><div class="wrap center">
+<p class="kicker">What Chhaon is</p>
+<h1 class="brand">Chhaon</h1>
+<p class="tagline">Find the coolest way to walk.</p>
+<button class="btn" id="toTool" type="button">Try the tool</button>
+</div></section>
+<section id="how" aria-label="How it works"><div class="wrap">
+<p class="kicker">How it works</p>
+<h2 class="h2">Three steps to shade</h2>
+<div class="steps">
+<div class="step" data-reveal><p class="n">1</p><p>Pick where you are going and who is walking.</p></div>
+<div class="step" data-reveal><p class="n">2</p><p>We score every street for sun, heat and exposure.</p></div>
+<div class="step" data-reveal><p class="n">3</p><p>You get three routes: fastest, balanced, coolest.</p></div>
+</div></div></section>
+<section id="tool" aria-label="Cool route finder tool"><div class="wrap">
+<p class="kicker">The tool</p>
+<h2 class="h2">Find your cool route</h2>
+<p class="muted">Routes are calculated live by the Chhaon API over a real OpenStreetMap graph. Values are estimates, not measured conditions.</p>
+<p class="pilot-note" id="pilotNote" role="status">Loading pilot-area details…</p>
+<div class="tool-grid">
+<form id="routeForm" class="panel" aria-label="Route search form" aria-busy="false">
+<label>Start
+<input id="inStart" type="text" value="Connaught Place (centre)" list="placeList" autocomplete="off" placeholder="Place name or lat,lon" />
+</label>
+<label>Destination
+<input id="inDest" type="text" value="Agrasen ki Baoli" list="placeList" autocomplete="off" placeholder="Place name or lat,lon" />
+</label>
+<datalist id="placeList"></datalist>
+<div class="row2">
+<label>Time of day<input id="inTime" type="time" value="13:00" /></label>
+<label>Who is walking<select id="inWho"><option value="adult">Adult</option><option value="elderly">Elderly</option><option value="child">Child</option><option value="vendor">Vendor</option></select></label>
+</div>
+<button class="btn" type="submit" id="findBtn">Find my route</button>
+<p class="muted small" id="formStatus" role="status"></p>
+<p class="muted small hint">Pilot area: Connaught Place, Delhi (1&nbsp;km radius). Pick a listed place, or type coordinates as <code>lat,lon</code>.</p>
+</form>
+<div class="mapbox">
+<div id="map" role="application" aria-label="Map showing fastest, balanced and coolest walking routes"></div>
+<div class="legend" aria-hidden="true"><span><i class="sw grey"></i>fastest</span><span><i class="sw amber"></i>balanced</span><span><i class="sw green"></i>coolest</span></div>
+</div></div>
+<p class="muted small" id="resultsMeta" role="status"></p>
+<div id="results" class="results" aria-live="polite"></div>
+<div id="adviceBox" class="advice" hidden>
+<div class="advice-head"><strong>Advice <span class="badge" id="adviceSource" hidden></span></strong>
+<div class="toggle" role="group" aria-label="Advice language"><button type="button" id="langEn" class="on" aria-pressed="true">English</button><button type="button" id="langHi" aria-pressed="false">Hindi</button></div></div>
+<p id="adviceText"></p></div>
+<p class="muted small disclaimer" id="toolDisclaimer"></p>
+</div></section>
+<section id="help" aria-label="Who it helps and technology"><div class="wrap center">
+<p class="kicker">Who it helps</p>
+<p class="help-line">Built for the elderly, children and street vendors who walk because they must.</p>
+<div class="aws" aria-label="Built on AWS"><span class="aws-t">Built on AWS</span><span>Lambda</span><span>Bedrock</span><span>S3</span><span>CloudFront</span><span>Location Service</span></div>
+</div></section>
+<footer id="close"><div class="wrap center">
+<h2 class="h2">Walk cooler. Arrive safer.</h2>
+<p class="muted">Chhaon is a pilot concept for finding shade on hot days.</p>
+<p class="muted small">Built on AWS &middot; Visuals AI generated with Google Flow &middot; Pilot area only. Shade, heat and pollution are estimates, not measured conditions.</p>
+</div></footer>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="api.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

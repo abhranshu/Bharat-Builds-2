@@ -1,0 +1,19 @@
+# Copy to samconfig.toml and adjust. `sam deploy --guided` writes one for you.
+version = 0.1
+
+[default.global.parameters]
+stack_name = "chhaon"
+region = "ap-south-1"
+
+[default.build.parameters]
+use_container = true
+
+[default.deploy.parameters]
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+resolve_s3 = true
+parameter_overrides = [
+  "AllowedOrigin=\"*\"",
+  "BedrockModelId=\"\"",
+  "GraphKey=\"graph.json.gz\"",
+]

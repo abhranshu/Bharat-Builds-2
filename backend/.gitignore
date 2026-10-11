@@ -1,0 +1,7 @@
+data/
+.osmnx_cache/
+__pycache__/
+*.pyc
+.aws-sam/
+samconfig.toml
+.pytest_cache/
