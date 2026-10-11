@@ -41,6 +41,7 @@ const CONFIG = {
   const ctx = canvas.getContext("2d");
   const labelEl = document.getElementById("filmLabel"), lineEl = document.getElementById("filmLine");
   const textBox = document.getElementById("filmText"), hint = document.getElementById("scrollHint");
+  const hero = document.getElementById("filmHero");
   const loadBar = document.getElementById("loadBar"), prog = document.getElementById("filmProgress");
   if (!section || !canvas) return;
   const rm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -95,6 +96,13 @@ const CONFIG = {
     return range > 0 ? Math.min(Math.max(scrollY - section.offsetTop, 0), range) / range : 0;
   }
   function captions(p) {
+    // Hero (Section 1: Introduction, 0-13%): visible at load, fades as film story begins.
+    // Driven by the SAME scroll progress as the canvas frames — no extra listener.
+    if (hero) {
+      const t = Math.min(Math.max(p / 0.13, 0), 1);   // 0 at top -> 1 by 13%
+      hero.style.opacity = String(Math.max(0, 1 - t));
+      hero.classList.toggle("hide", p > 0.12);
+    }
     const hit = CONFIG.captions.find((c) => p >= c.from && p <= c.to);
     if (hit) {
       if (labelEl.textContent !== hit.label) { labelEl.textContent = hit.label; lineEl.textContent = hit.text; }
